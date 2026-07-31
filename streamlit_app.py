@@ -27,24 +27,21 @@ if arquivo_pdf is not None:
             st.stop()
 
         # 2. Captura dos Dados Gerais da Nota (Empresa, CNPJ e Data)
-        # Nome da empresa (no canhoto)
         match_empresa = re.search(r'RECEBEMOS\s+DE\s+(.*?)\s+OS\s+PRODUTOS', texto_completo, re.IGNORECASE)
         nome_empresa = match_empresa.group(1).strip() if match_empresa else "Empresa não identificada"
         
-        # Primeiro CNPJ encontrado (Emissor)
         match_cnpj = re.search(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}', texto_completo)
         cnpj_empresa = match_cnpj.group(0) if match_cnpj else "CNPJ não identificado"
         
-        # Data de emissão (Busca a primeira data no formato DD/MM/AAAA que aparece na nota)
         match_data = re.search(r'\d{2}/\d{2}/\d{4}', texto_completo)
         data_emissao = match_data.group(0) if match_data else "Data não identificada"
 
-        # 3. Regex Especializada para os Itens do DANFE
+        # 3. Regex Especializada para os Itens do DANFE (Agora com CST opcional)
         padrao_danfe = re.compile(
             r'(?P<codigo>\d+)\s+'                                  
             r'(?P<descricao>[\s\S]+?)'                             
             r'\s+(?P<ncm>\d{8})\s+'                                
-            r'(?P<cst>\d{3,4})\s+'                                 
+            r'(?P<cst>\d{3,4})?\s*'                                # O sinal '?' torna o CST opcional
             r'(?P<cfop>\d[.,]?\d{3})\s+'                           
             r'(?P<unidade>[a-zA-Z]{2,4})\s+'                       
             r'(?P<quantidade>[\d.,]+)\s+'                          
@@ -60,6 +57,10 @@ if arquivo_pdf is not None:
             # Limpeza rápida de quebras de linha na descrição
             dicionario['descricao'] = dicionario['descricao'].replace('\n', ' ').strip()
             
+            # Se o CST for opcional e vier vazio, preenche com "N/I"
+            if not dicionario['cst']:
+                dicionario['cst'] = 'N/I'
+            
             # Injeta os dados da nota na linha do produto
             dicionario['empresa'] = nome_empresa
             dicionario['cnpj'] = cnpj_empresa
@@ -73,17 +74,17 @@ if arquivo_pdf is not None:
             
             df = pd.DataFrame(itens)
             
-            # Reorganiza a ordem das colunas para colocar Empresa, CNPJ e Data no começo
+            # Reorganiza a ordem das colunas
             df = df[['empresa', 'cnpj', 'data', 'codigo', 'descricao', 'ncm', 'cst', 'cfop', 'unidade', 'quantidade', 'vlr_unitario', 'vlr_total']]
             
-            # Renomeia as colunas para exibição e exportação
+            # Renomeia as colunas para exibição
             df.columns = ['Empresa', 'CNPJ', 'Data', 'Código', 'Descrição', 'NCM', 'CST', 'CFOP', 'Unidade', 'Qtd', 'Vlr. Unitário', 'Vlr. Total']
             
-            # Exibe o DataFrame na tela
+            # Exibe o DataFrame
             st.subheader("Tabela de Produtos Faturados")
             st.dataframe(df, use_container_width=True)
             
-            # Botão de Download em CSV (Padrão Excel Brasileiro)
+            # Botão de Download
             csv = df.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
             
             st.download_button(

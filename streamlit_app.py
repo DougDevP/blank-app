@@ -26,25 +26,28 @@ if arquivo_pdf is not None:
             st.error(f"Erro ao ler o PDF: {e}")
             st.stop()
 
-        # 2. Regex Especializada para DANFE Brasileiro
-        # Essa regra mapeia a estrutura padrão das colunas de produtos na nota fiscal
+        # 2. Regex Especializada e Flexível baseada nos modelos ExclusivEPI e Tutela
         padrao_danfe = re.compile(
-            r'(?P<codigo>[\w.-]+)\s+'                        # 1. Código (Letras/Números)
-            r'(?P<descricao>.+?)\s+'                         # 2. Descrição do Produto
-            r'(?P<ncm>[\d.]{8,10})\s+'                       # 3. NCM (8 dígitos, com ou sem ponto)
-            r'(?P<cst>\d{3,4})\s+'                           # 4. CST ou CSOSN (3 ou 4 dígitos)
-            r'(?P<cfop>\d{4})\s+'                            # 5. CFOP (4 dígitos)
-            r'(?P<unidade>[A-Za-z]{2,4})\s+'                 # 6. Unidade (UN, PC, KG, LT, etc)
-            r'(?P<quantidade>\d+(?:[.,]\d+)?)\s+'            # 7. Quantidade (Ex: 1, 10.50, 2,00)
-            r'(?P<vlr_unitario>\d+(?:[.,]\d+)?)\s+'          # 8. Valor Unitário
-            r'(?P<vlr_total>\d+(?:[.,]\d+)?)',               # 9. Valor Total
+            r'(?P<codigo>\d+)\s+'                                  # 1. Código (Apenas números)
+            r'(?P<descricao>[\s\S]+?)'                             # 2. Descrição (Permite quebras de linha e textos longos)
+            r'\s+(?P<ncm>\d{8})\s+'                                # 3. NCM (8 dígitos exatos, âncora principal)
+            r'(?P<cst>\d{3,4})\s+'                                 # 4. CST/CSOSN (3 a 4 dígitos)
+            r'(?P<cfop>\d[.,]?\d{3})\s+'                           # 5. CFOP (Aceita formatos como '6108' ou '5.102')
+            r'(?P<unidade>[a-zA-Z]{2,4})\s+'                       # 6. Unidade (Maiúsculas e minúsculas como 'UN', 'un', 'PR')
+            r'(?P<quantidade>[\d.,]+)\s+'                          # 7. Quantidade (Aceita vírgula ou ponto)
+            r'(?P<vlr_unitario>[\d.,]+)\s+'                        # 8. Valor Unitário (Aceita vírgula ou ponto)
+            r'(?P<vlr_total>[\d.,]+)',                             # 9. Valor Total (Aceita vírgula ou ponto)
             re.IGNORECASE
         )
 
         # Procura todos os itens que bateram com a regra acima
         itens = []
         for match in padrao_danfe.finditer(texto_completo):
-            itens.append(match.groupdict())
+            dicionario = match.groupdict()
+            
+            # Limpeza rápida de quebras de linha na descrição para ficar bonito na planilha
+            dicionario['descricao'] = dicionario['descricao'].replace('\n', ' ').strip()
+            itens.append(dicionario)
 
         # 3. Transformação em DataFrame (Pandas)
         if itens:
@@ -53,14 +56,14 @@ if arquivo_pdf is not None:
             # Cria o DataFrame com os dados extraídos
             df = pd.DataFrame(itens)
             
-            # Organiza os nomes das colunas para ficarem bonitos na tela
+            # Organiza os nomes das colunas
             df.columns = ['Código', 'Descrição', 'NCM', 'CST', 'CFOP', 'Unidade', 'Qtd', 'Vlr. Unitário', 'Vlr. Total']
             
             # Exibe o DataFrame na tela
             st.subheader("Tabela de Produtos Faturados")
             st.dataframe(df, use_container_width=True)
             
-            # 4. Botão de Download em CSV (Configurado para o Excel brasileiro)
+            # 4. Botão de Download em CSV (Padrão Excel Brasileiro)
             csv = df.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
             
             st.download_button(
@@ -71,8 +74,7 @@ if arquivo_pdf is not None:
             )
         else:
             st.warning("Nenhum produto foi mapeado automaticamente.")
-            st.info("Isso acontece se a nota for de Serviços (NFS-e) ou tiver colunas fora do padrão DANFE. Expanda o bloco abaixo para ver o texto bruto extraído.")
+            st.info("Expanda o bloco abaixo para ver o texto bruto extraído e analisar a estrutura.")
             
-        # Útil para diagnosticar notas com layouts "diferentões"
         with st.expander("Ver texto bruto extraído do PDF (Modo Debug)"):
             st.text(texto_completo)

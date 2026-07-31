@@ -7,7 +7,7 @@ import re
 st.set_page_config(page_title="Extrator de Itens - DANFE", layout="wide")
 
 st.title("📄 Extrator de Itens Faturados (DANFE)")
-st.write("Extrai os produtos, quantidades e valores da Nota Fiscal e converte em planilha.")
+st.write("Extrai os produtos, quantidades, valores e dados do emissor (incluindo Data) da Nota Fiscal.")
 
 # Upload do arquivo
 arquivo_pdf = st.file_uploader("Selecione o PDF da Nota Fiscal", type=["pdf"])
@@ -26,50 +26,70 @@ if arquivo_pdf is not None:
             st.error(f"Erro ao ler o PDF: {e}")
             st.stop()
 
-        # 2. Regex Especializada e Flexível baseada nos modelos ExclusivEPI e Tutela
+        # 2. Captura dos Dados Gerais da Nota (Empresa, CNPJ e Data)
+        # Nome da empresa (no canhoto)
+        match_empresa = re.search(r'RECEBEMOS\s+DE\s+(.*?)\s+OS\s+PRODUTOS', texto_completo, re.IGNORECASE)
+        nome_empresa = match_empresa.group(1).strip() if match_empresa else "Empresa não identificada"
+        
+        # Primeiro CNPJ encontrado (Emissor)
+        match_cnpj = re.search(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}', texto_completo)
+        cnpj_empresa = match_cnpj.group(0) if match_cnpj else "CNPJ não identificado"
+        
+        # Data de emissão (Busca a primeira data no formato DD/MM/AAAA que aparece na nota)
+        match_data = re.search(r'\d{2}/\d{2}/\d{4}', texto_completo)
+        data_emissao = match_data.group(0) if match_data else "Data não identificada"
+
+        # 3. Regex Especializada para os Itens do DANFE
         padrao_danfe = re.compile(
-            r'(?P<codigo>\d+)\s+'                                  # 1. Código (Apenas números)
-            r'(?P<descricao>[\s\S]+?)'                             # 2. Descrição (Permite quebras de linha e textos longos)
-            r'\s+(?P<ncm>\d{8})\s+'                                # 3. NCM (8 dígitos exatos, âncora principal)
-            r'(?P<cst>\d{3,4})\s+'                                 # 4. CST/CSOSN (3 a 4 dígitos)
-            r'(?P<cfop>\d[.,]?\d{3})\s+'                           # 5. CFOP (Aceita formatos como '6108' ou '5.102')
-            r'(?P<unidade>[a-zA-Z]{2,4})\s+'                       # 6. Unidade (Maiúsculas e minúsculas como 'UN', 'un', 'PR')
-            r'(?P<quantidade>[\d.,]+)\s+'                          # 7. Quantidade (Aceita vírgula ou ponto)
-            r'(?P<vlr_unitario>[\d.,]+)\s+'                        # 8. Valor Unitário (Aceita vírgula ou ponto)
-            r'(?P<vlr_total>[\d.,]+)',                             # 9. Valor Total (Aceita vírgula ou ponto)
+            r'(?P<codigo>\d+)\s+'                                  
+            r'(?P<descricao>[\s\S]+?)'                             
+            r'\s+(?P<ncm>\d{8})\s+'                                
+            r'(?P<cst>\d{3,4})\s+'                                 
+            r'(?P<cfop>\d[.,]?\d{3})\s+'                           
+            r'(?P<unidade>[a-zA-Z]{2,4})\s+'                       
+            r'(?P<quantidade>[\d.,]+)\s+'                          
+            r'(?P<vlr_unitario>[\d.,]+)\s+'                        
+            r'(?P<vlr_total>[\d.,]+)',                             
             re.IGNORECASE
         )
 
-        # Procura todos os itens que bateram com a regra acima
         itens = []
         for match in padrao_danfe.finditer(texto_completo):
             dicionario = match.groupdict()
             
-            # Limpeza rápida de quebras de linha na descrição para ficar bonito na planilha
+            # Limpeza rápida de quebras de linha na descrição
             dicionario['descricao'] = dicionario['descricao'].replace('\n', ' ').strip()
+            
+            # Injeta os dados da nota na linha do produto
+            dicionario['empresa'] = nome_empresa
+            dicionario['cnpj'] = cnpj_empresa
+            dicionario['data'] = data_emissao
+            
             itens.append(dicionario)
 
-        # 3. Transformação em DataFrame (Pandas)
+        # 4. Transformação em DataFrame (Pandas)
         if itens:
-            st.success(f"Sucesso! Encontramos {len(itens)} produto(s) faturado(s) na nota.")
+            st.success(f"Sucesso! Encontramos {len(itens)} produto(s) faturado(s).")
             
-            # Cria o DataFrame com os dados extraídos
             df = pd.DataFrame(itens)
             
-            # Organiza os nomes das colunas
-            df.columns = ['Código', 'Descrição', 'NCM', 'CST', 'CFOP', 'Unidade', 'Qtd', 'Vlr. Unitário', 'Vlr. Total']
+            # Reorganiza a ordem das colunas para colocar Empresa, CNPJ e Data no começo
+            df = df[['empresa', 'cnpj', 'data', 'codigo', 'descricao', 'ncm', 'cst', 'cfop', 'unidade', 'quantidade', 'vlr_unitario', 'vlr_total']]
+            
+            # Renomeia as colunas para exibição e exportação
+            df.columns = ['Empresa', 'CNPJ', 'Data', 'Código', 'Descrição', 'NCM', 'CST', 'CFOP', 'Unidade', 'Qtd', 'Vlr. Unitário', 'Vlr. Total']
             
             # Exibe o DataFrame na tela
             st.subheader("Tabela de Produtos Faturados")
             st.dataframe(df, use_container_width=True)
             
-            # 4. Botão de Download em CSV (Padrão Excel Brasileiro)
+            # Botão de Download em CSV (Padrão Excel Brasileiro)
             csv = df.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
             
             st.download_button(
                 label="📥 Baixar Planilha em CSV",
                 data=csv,
-                file_name='produtos_faturados.csv',
+                file_name=f'produtos_{cnpj_empresa.replace("/", "").replace("-", "").replace(".", "")}.csv',
                 mime='text/csv',
             )
         else:

@@ -36,12 +36,13 @@ if arquivo_pdf is not None:
         match_data = re.search(r'\d{2}/\d{2}/\d{4}', texto_completo)
         data_emissao = match_data.group(0) if match_data else "Data não identificada"
 
-        # 3. Regex Especializada para os Itens do DANFE (Agora com CST opcional)
+        # 3. Regex Especializada para os Itens do DANFE 
+        # ATENÇÃO: O `(?:^|\n)` garante que o código seja SEMPRE lido no início de uma linha
         padrao_danfe = re.compile(
-            r'(?P<codigo>\d+)\s+'                                  
+            r'(?:^|\n)(?P<codigo>\d+)\s+'                           
             r'(?P<descricao>[\s\S]+?)'                             
             r'\s+(?P<ncm>\d{8})\s+'                                
-            r'(?P<cst>\d{3,4})?\s*'                                # O sinal '?' torna o CST opcional
+            r'(?P<cst>\d{3,4})?\s*'                                
             r'(?P<cfop>\d[.,]?\d{3})\s+'                           
             r'(?P<unidade>[a-zA-Z]{2,4})\s+'                       
             r'(?P<quantidade>[\d.,]+)\s+'                          
@@ -54,10 +55,9 @@ if arquivo_pdf is not None:
         for match in padrao_danfe.finditer(texto_completo):
             dicionario = match.groupdict()
             
-            # Limpeza rápida de quebras de linha na descrição
-            dicionario['descricao'] = dicionario['descricao'].replace('\n', ' ').strip()
+            # 4. Limpeza Profunda da Descrição (Remove múltiplos espaços, tabs e quebras de linha)
+            dicionario['descricao'] = re.sub(r'\s+', ' ', dicionario['descricao']).strip()
             
-            # Se o CST for opcional e vier vazio, preenche com "N/I"
             if not dicionario['cst']:
                 dicionario['cst'] = 'N/I'
             
@@ -68,7 +68,7 @@ if arquivo_pdf is not None:
             
             itens.append(dicionario)
 
-        # 4. Transformação em DataFrame (Pandas)
+        # 5. Transformação em DataFrame (Pandas)
         if itens:
             st.success(f"Sucesso! Encontramos {len(itens)} produto(s) faturado(s).")
             

@@ -3,6 +3,7 @@ import fitz
 import pandas as pd
 import re
 import requests
+url = "https://defaultca18acb0331244f2869d5b01ed8bb4.7d.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/31/workflows/c8f13fb65dd8488ab9fc574ba13f6f1a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=4BLzQi7_7vL1gjLfdAsCzJHkmAZKZc1HtYRLGuFy58s"
 # ==========================================
 # CONFIGURAÇÃO DA PÁGINA
 # ==========================================
@@ -301,3 +302,7 @@ if arquivo_pdf is not None:
             "Ver texto completo extraído"
         ):
             st.text(texto_completo)
+
+
+if st.button("Enviar para Sharepoint"):
+    requests.post(url)

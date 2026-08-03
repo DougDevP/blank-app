@@ -280,6 +280,9 @@ if arquivo_pdf is not None:
                 mime="text/csv"
             )
 
+            if st.button("Enviar para Sharepoint"):
+                requests.post(url)
+
         else:
 
             st.warning(
@@ -304,5 +307,4 @@ if arquivo_pdf is not None:
             st.text(texto_completo)
 
 
-if st.button("Enviar para Sharepoint"):
-    requests.post(url)
+

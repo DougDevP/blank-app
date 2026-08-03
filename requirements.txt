@@ -4,4 +4,4 @@ pandas
 PyPDF2
 openai
 PyMuPDF  # instead of fitz
-request
+requests

@@ -3,7 +3,13 @@ import fitz
 import pandas as pd
 import re
 import requests
+
+# ==========================================
+# POWER AUTOMATE
+# ==========================================
+
 url = "https://defaultca18acb0331244f2869d5b01ed8bb4.7d.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/31/workflows/c8f13fb65dd8488ab9fc574ba13f6f1a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=4BLzQi7_7vL1gjLfdAsCzJHkmAZKZc1HtYRLGuFy58s"
+
 # ==========================================
 # CONFIGURAÇÃO DA PÁGINA
 # ==========================================
@@ -15,217 +21,203 @@ st.set_page_config(
 
 st.title("📄 Extrator de Itens Faturados (DANFE)")
 st.write(
-    "Extrai produtos, quantidades, valores e dados gerais da NF."
+    "Extrai produtos, quantidades, valores e dados gerais de uma ou mais notas fiscais."
 )
 
 # ==========================================
 # UPLOAD
 # ==========================================
 
-arquivo_pdf = st.file_uploader(
-    "Selecione o PDF da Nota Fiscal",
-    type=["pdf"]
+arquivos_pdf = st.file_uploader(
+    "Selecione uma ou mais Notas Fiscais",
+    type=["pdf"],
+    accept_multiple_files=True
+)
+
+# ==========================================
+# REGEX PRODUTOS
+# ==========================================
+
+padrao_item = re.compile(
+    r'(?P<codigo>\d{3,10})\s+'
+    r'(?P<descricao>.*?)'
+    r'\s+(?P<ncm>\d{8})'
+    r'(?:\s+(?P<cst>\d{3}))?'
+    r'\s+(?P<cfop>\d\.?\d{3})'
+    r'\s+(?P<unidade>[A-Za-z]{2,4})'
+    r'\s+(?P<quantidade>[\d.,]+)'
+    r'\s+(?P<vlr_unitario>[\d.,]+)'
+    r'\s+(?P<vlr_total>[\d.,]+)',
+    re.IGNORECASE
 )
 
 # ==========================================
 # PROCESSAMENTO
 # ==========================================
 
-if arquivo_pdf is not None:
+if arquivos_pdf:
 
-    with st.spinner("Analisando nota fiscal..."):
+    with st.spinner("Analisando notas fiscais..."):
 
-        # --------------------------
-        # LEITURA PDF
-        # --------------------------
+        todos_itens = []
 
-        texto_completo = ""
+        for arquivo_pdf in arquivos_pdf:
 
-        try:
+            texto_completo = ""
 
-            pdf = fitz.open(
-                stream=arquivo_pdf.read(),
-                filetype="pdf"
-            )
+            try:
 
-            for pagina in pdf:
-                texto_completo += pagina.get_text() + "\n"
+                pdf = fitz.open(
+                    stream=arquivo_pdf.read(),
+                    filetype="pdf"
+                )
 
-            pdf.close()
+                for pagina in pdf:
+                    texto_completo += pagina.get_text() + "\n"
 
-        except Exception as e:
+                pdf.close()
 
-            st.error(f"Erro ao ler PDF: {e}")
-            st.stop()
+            except Exception as e:
 
-        # --------------------------
-        # DADOS GERAIS
-        # --------------------------
+                st.error(
+                    f"Erro ao ler o arquivo {arquivo_pdf.name}: {e}"
+                )
+                continue
 
-        match_empresa = re.search(
-            r'RECEBEMOS\s+DE\s+(.*?)\s+OS\s+PRODUTOS',
-            texto_completo,
-            re.IGNORECASE
-        )
+            # ==========================================
+            # DADOS GERAIS
+            # ==========================================
 
-        nome_empresa = (
-            match_empresa.group(1).strip()
-            if match_empresa
-            else "Empresa não identificada"
-        )
-
-        match_cnpj = re.search(
-            r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}',
-            texto_completo
-        )
-
-        cnpj_empresa = (
-            match_cnpj.group(0)
-            if match_cnpj
-            else "CNPJ não identificado"
-        )
-
-        match_data = re.search(
-            r'\d{2}/\d{2}/\d{4}',
-            texto_completo
-        )
-
-        data_emissao = (
-            match_data.group(0)
-            if match_data
-            else "Data não identificada"
-        )
-
-        # --------------------------
-        # LOCALIZA TABELA PRODUTOS
-        # --------------------------
-
-        padroes_inicio = [
-            r'DADOS\s+DOS\s+PRODUTOS\s*/\s*SERVIÇOS',
-            r'DADOS\s+DOS\s+PRODUTOS/SERVIÇOS',
-            r'Itens\s+da\s+nota\s+fiscal'
-        ]
-
-        texto_produtos = ""
-
-        for padrao in padroes_inicio:
-
-            match = re.search(
-                padrao,
+            match_empresa = re.search(
+                r'RECEBEMOS\s+DE\s+(.*?)\s+OS\s+PRODUTOS',
                 texto_completo,
                 re.IGNORECASE
             )
 
-            if match:
-
-                texto_produtos = texto_completo[
-                    match.end():
-                ]
-
-                break
-
-        if not texto_produtos:
-
-            st.warning(
-                "Não foi possível localizar a seção de produtos."
+            nome_empresa = (
+                match_empresa.group(1).strip()
+                if match_empresa
+                else "Empresa não identificada"
             )
 
-            st.stop()
+            match_cnpj = re.search(
+                r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}',
+                texto_completo
+            )
 
-        # --------------------------
-        # REMOVE RODAPÉ
-        # --------------------------
+            cnpj_empresa = (
+                match_cnpj.group(0)
+                if match_cnpj
+                else "CNPJ não identificado"
+            )
 
-        fim_tabela = re.search(
-            r'(CÁLCULO\s+DO\s+ISSQN|'
-            r'CALCULO\s+DO\s+ISSQN|'
-            r'DADOS\s+ADICIONAIS|'
-            r'INFORMAÇÕES\s+COMPLEMENTARES|'
-            r'INFORMACOES\s+COMPLEMENTARES|'
-            r'RESERVADO\s+AO\s+FISCO)',
-            texto_produtos,
-            re.IGNORECASE
-        )
+            match_data = re.search(
+                r'\d{2}/\d{2}/\d{4}',
+                texto_completo
+            )
 
-        if fim_tabela:
-            texto_produtos = texto_produtos[
-                :fim_tabela.start()
+            data_emissao = (
+                match_data.group(0)
+                if match_data
+                else "Data não identificada"
+            )
+
+            # ==========================================
+            # ENCONTRA TABELA DE PRODUTOS
+            # ==========================================
+
+            padroes_inicio = [
+                r'DADOS\s+DOS\s+PRODUTOS\s*/\s*SERVIÇOS',
+                r'DADOS\s+DOS\s+PRODUTOS/SERVIÇOS',
+                r'Itens\s+da\s+nota\s+fiscal'
             ]
 
-        # normaliza espaços
+            texto_produtos = ""
 
-        texto_produtos = re.sub(
-            r'\s+',
-            ' ',
-            texto_produtos
-        )
+            for padrao in padroes_inicio:
 
-        # --------------------------
-        # REGEX PRODUTOS
-        # --------------------------
+                match = re.search(
+                    padrao,
+                    texto_completo,
+                    re.IGNORECASE
+                )
 
-        padrao_item = re.compile(
+                if match:
+                    texto_produtos = texto_completo[
+                        match.end():
+                    ]
+                    break
 
-            r'(?P<codigo>\d{3,10})\s+'
+            if not texto_produtos:
 
-            r'(?P<descricao>.*?)'
+                st.warning(
+                    f"Não foi possível localizar os produtos em {arquivo_pdf.name}"
+                )
+                continue
 
-            r'\s+(?P<ncm>\d{8})'
+            # ==========================================
+            # REMOVE RODAPÉ
+            # ==========================================
 
-            r'(?:\s+(?P<cst>\d{3}))?'
+            fim_tabela = re.search(
+                r'(CÁLCULO\s+DO\s+ISSQN|'
+                r'CALCULO\s+DO\s+ISSQN|'
+                r'DADOS\s+ADICIONAIS|'
+                r'INFORMAÇÕES\s+COMPLEMENTARES|'
+                r'INFORMACOES\s+COMPLEMENTARES|'
+                r'RESERVADO\s+AO\s+FISCO)',
+                texto_produtos,
+                re.IGNORECASE
+            )
 
-            r'\s+(?P<cfop>\d\.?\d{3})'
+            if fim_tabela:
+                texto_produtos = texto_produtos[
+                    :fim_tabela.start()
+                ]
 
-            r'\s+(?P<unidade>[A-Za-z]{2,4})'
-
-            r'\s+(?P<quantidade>[\d.,]+)'
-
-            r'\s+(?P<vlr_unitario>[\d.,]+)'
-
-            r'\s+(?P<vlr_total>[\d.,]+)',
-
-            re.IGNORECASE
-        )
-
-        itens = []
-
-        # --------------------------
-        # EXTRAÇÃO
-        # --------------------------
-
-        for match in padrao_item.finditer(
-            texto_produtos
-        ):
-
-            item = match.groupdict()
-
-            descricao = re.sub(
+            texto_produtos = re.sub(
                 r'\s+',
                 ' ',
-                item["descricao"]
-            ).strip()
+                texto_produtos
+            )
 
-            item["descricao"] = descricao
+            # ==========================================
+            # EXTRAÇÃO DOS ITENS
+            # ==========================================
 
-            if not item["cst"]:
-                item["cst"] = "N/I"
+            for match in padrao_item.finditer(
+                texto_produtos
+            ):
 
-            item["empresa"] = nome_empresa
-            item["cnpj"] = cnpj_empresa
-            item["data"] = data_emissao
+                item = match.groupdict()
 
-            itens.append(item)
+                item["descricao"] = re.sub(
+                    r'\s+',
+                    ' ',
+                    item["descricao"]
+                ).strip()
 
-        # --------------------------
-        # RESULTADO
-        # --------------------------
+                if not item["cst"]:
+                    item["cst"] = "N/I"
 
-        if len(itens) > 0:
+                item["arquivo"] = arquivo_pdf.name
+                item["empresa"] = nome_empresa
+                item["cnpj"] = cnpj_empresa
+                item["data"] = data_emissao
 
-            df = pd.DataFrame(itens)
+                todos_itens.append(item)
+
+        # ==========================================
+        # RESULTADO FINAL
+        # ==========================================
+
+        if len(todos_itens) > 0:
+
+            df = pd.DataFrame(todos_itens)
 
             df = df[
                 [
+                    "arquivo",
                     "empresa",
                     "cnpj",
                     "data",
@@ -242,6 +234,7 @@ if arquivo_pdf is not None:
             ]
 
             df.columns = [
+                "Arquivo",
                 "Empresa",
                 "CNPJ",
                 "Data",
@@ -257,7 +250,7 @@ if arquivo_pdf is not None:
             ]
 
             st.success(
-                f"Foram encontrados {len(df)} produto(s)."
+                f"Foram encontrados {len(df)} produto(s) em {len(arquivos_pdf)} arquivo(s)."
             )
 
             st.dataframe(
@@ -274,38 +267,56 @@ if arquivo_pdf is not None:
             )
 
             st.download_button(
-                "📥 Baixar CSV",
+                "📥 Baixar CSV Consolidado",
                 csv,
-                file_name="produtos_nota_fiscal.csv",
+                file_name="produtos_notas_fiscais.csv",
                 mime="text/csv"
             )
 
-            if st.button("Enviar para Sharepoint"):
-                payload=df.to_dict(orient="records")
-                requests.post(url,json=payload)
+            # ==========================================
+            # ENVIO SHAREPOINT / POWER AUTOMATE
+            # ==========================================
+
+            if st.button("Enviar para SharePoint"):
+
+                payload = df.to_dict(
+                    orient="records"
+                )
+
+                try:
+
+                    response = requests.post(
+                        url,
+                        json=payload,
+                        timeout=120
+                    )
+
+                    if response.status_code in [
+                        200,
+                        201,
+                        202
+                    ]:
+
+                        st.success(
+                            f"{len(df)} registros enviados com sucesso."
+                        )
+
+                    else:
+
+                        st.error(
+                            f"Erro ao enviar. Status: {response.status_code}"
+                        )
+
+                        st.text(response.text)
+
+                except Exception as e:
+
+                    st.error(
+                        f"Erro na comunicação: {e}"
+                    )
 
         else:
 
             st.warning(
-                "Nenhum produto encontrado."
+                "Nenhum produto encontrado nos arquivos enviados."
             )
-
-            st.subheader(
-                "Debug da área de produtos"
-            )
-
-            st.text(
-                texto_produtos[:5000]
-            )
-
-        # --------------------------
-        # DEBUG COMPLETO
-        # --------------------------
-
-        with st.expander(
-            "Ver texto completo extraído"
-        ):
-            st.text(texto_completo)
-
-
-

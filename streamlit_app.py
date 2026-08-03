@@ -1,101 +1,254 @@
 import streamlit as st
-import fitz  # PyMuPDF
+import fitz
 import pandas as pd
 import re
 
-# Configuração da página
 st.set_page_config(page_title="Extrator de Itens - DANFE", layout="wide")
 
 st.title("📄 Extrator de Itens Faturados (DANFE)")
-st.write("Extrai os produtos, quantidades, valores e dados do emissor (incluindo Data) da Nota Fiscal.")
 
-# Upload do arquivo
-arquivo_pdf = st.file_uploader("Selecione o PDF da Nota Fiscal", type=["pdf"])
+arquivo_pdf = st.file_uploader(
+    "Selecione o PDF da Nota Fiscal",
+    type=["pdf"]
+)
 
-if arquivo_pdf is not None:
-    with st.spinner("Analisando a estrutura da nota..."):
-        
-        # 1. Extração do texto bruto usando PyMuPDF (fitz)
-        texto_completo = ""
-        try:
-            documento = fitz.open(stream=arquivo_pdf.read(), filetype="pdf")
-            for pagina in documento:
-                texto_completo += pagina.get_text() + "\n"
-            documento.close()
-        except Exception as e:
-            st.error(f"Erro ao ler o PDF: {e}")
-            st.stop()
+if arquivo_pdf:
 
-        # 2. Captura dos Dados Gerais da Nota (Empresa, CNPJ e Data)
-        match_empresa = re.search(r'RECEBEMOS\s+DE\s+(.*?)\s+OS\s+PRODUTOS', texto_completo, re.IGNORECASE)
-        nome_empresa = match_empresa.group(1).strip() if match_empresa else "Empresa não identificada"
-        
-        match_cnpj = re.search(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}', texto_completo)
-        cnpj_empresa = match_cnpj.group(0) if match_cnpj else "CNPJ não identificado"
-        
-        match_data = re.search(r'\d{2}/\d{2}/\d{4}', texto_completo)
-        data_emissao = match_data.group(0) if match_data else "Data não identificada"
+    texto_completo = ""
 
-        # 3. Regex Especializada para os Itens do DANFE 
-        # ATENÇÃO: O `(?:^|\n)` garante que o código seja SEMPRE lido no início de uma linha
-        padrao_danfe = re.compile(
-            r'(?:^|\n)(?P<codigo>\d+)\s+'                           
-            r'(?P<descricao>[\s\S]+?)'                             
-            r'\s+(?P<ncm>\d{8})\s+'                                
-            r'(?P<cst>\d{3,4})?\s*'                                
-            r'(?P<cfop>\d[.,]?\d{3})\s+'                           
-            r'(?P<unidade>[a-zA-Z]{2,4})\s+'                       
-            r'(?P<quantidade>[\d.,]+)\s+'                          
-            r'(?P<vlr_unitario>[\d.,]+)\s+'                        
-            r'(?P<vlr_total>[\d.,]+)',                             
-            re.IGNORECASE
+    try:
+        documento = fitz.open(
+            stream=arquivo_pdf.read(),
+            filetype="pdf"
         )
 
-        itens = []
-        for match in padrao_danfe.finditer(texto_completo):
-            dicionario = match.groupdict()
-            
-            # 4. Limpeza Profunda da Descrição (Remove múltiplos espaços, tabs e quebras de linha)
-            dicionario['descricao'] = re.sub(r'\s+', ' ', dicionario['descricao']).strip()
-            
-            if not dicionario['cst']:
-                dicionario['cst'] = 'N/I'
-            
-            # Injeta os dados da nota na linha do produto
-            dicionario['empresa'] = nome_empresa
-            dicionario['cnpj'] = cnpj_empresa
-            dicionario['data'] = data_emissao
-            
-            itens.append(dicionario)
+        for pagina in documento:
+            texto_completo += pagina.get_text() + "\n"
 
-        # 5. Transformação em DataFrame (Pandas)
-        if itens:
-            st.success(f"Sucesso! Encontramos {len(itens)} produto(s) faturado(s).")
-            
-            df = pd.DataFrame(itens)
-            
-            # Reorganiza a ordem das colunas
-            df = df[['empresa', 'cnpj', 'data', 'codigo', 'descricao', 'ncm', 'cst', 'cfop', 'unidade', 'quantidade', 'vlr_unitario', 'vlr_total']]
-            
-            # Renomeia as colunas para exibição
-            df.columns = ['Empresa', 'CNPJ', 'Data', 'Código', 'Descrição', 'NCM', 'CST', 'CFOP', 'Unidade', 'Qtd', 'Vlr. Unitário', 'Vlr. Total']
-            
-            # Exibe o DataFrame
-            st.subheader("Tabela de Produtos Faturados")
-            st.dataframe(df, use_container_width=True)
-            
-            # Botão de Download
-            csv = df.to_csv(index=False, sep=';', encoding='utf-8-sig').encode('utf-8-sig')
-            
-            st.download_button(
-                label="📥 Baixar Planilha em CSV",
-                data=csv,
-                file_name=f'produtos_{cnpj_empresa.replace("/", "").replace("-", "").replace(".", "")}.csv',
-                mime='text/csv',
-            )
-        else:
-            st.warning("Nenhum produto foi mapeado automaticamente.")
-            st.info("Expanda o bloco abaixo para ver o texto bruto extraído e analisar a estrutura.")
-            
-        with st.expander("Ver texto bruto extraído do PDF (Modo Debug)"):
-            st.text(texto_completo)
+        documento.close()
+
+    except Exception as e:
+        st.error(f"Erro ao ler PDF: {e}")
+        st.stop()
+
+    # ==========================
+    # DADOS GERAIS
+    # ==========================
+
+    match_empresa = re.search(
+        r'RECEBEMOS\s+DE\s+(.*?)\s+OS\s+PRODUTOS',
+        texto_completo,
+        re.IGNORECASE
+    )
+
+    nome_empresa = (
+        match_empresa.group(1).strip()
+        if match_empresa
+        else "Empresa não identificada"
+    )
+
+    match_cnpj = re.search(
+        r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}',
+        texto_completo
+    )
+
+    cnpj_empresa = (
+        match_cnpj.group(0)
+        if match_cnpj
+        else "CNPJ não identificado"
+    )
+
+    match_data = re.search(
+        r'\d{2}/\d{2}/\d{4}',
+        texto_completo
+    )
+
+    data_emissao = (
+        match_data.group(0)
+        if match_data
+        else "Data não identificada"
+    )
+
+    # ==========================
+    # LOCALIZA TABELA DE PRODUTOS
+    # ==========================
+
+    marcadores_inicio = [
+        "DADOS DOS PRODUTOS / SERVIÇOS",
+        "DADOS DOS PRODUTOS/SERVIÇOS",
+        "Itens da nota fiscal"
+    ]
+
+    texto_produtos = ""
+
+    for marcador in marcadores_inicio:
+
+        pos = texto_completo.upper().find(
+            marcador.upper()
+        )
+
+        if pos >= 0:
+            texto_produtos = texto_completo[pos:]
+            break
+
+    if not texto_produtos:
+        st.warning("Seção de produtos não encontrada.")
+        st.stop()
+
+    # remove rodapé da tabela
+
+    match_fim = re.search(
+        r'(CÁLCULO DO ISSQN|INFORMAÇÕES COMPLEMENTARES|DADOS ADICIONAIS)',
+        texto_produtos,
+        re.IGNORECASE
+    )
+
+    if match_fim:
+        texto_produtos = texto_produtos[:match_fim.start()]
+
+    texto_produtos = re.sub(
+        r'\s+',
+        ' ',
+        texto_produtos
+    )
+
+    # ==========================
+    # IDENTIFICA INÍCIO DOS ITENS
+    # ==========================
+
+    padrao_inicio_item = re.compile(
+        r'(?=\b\d{3,10}\s+(?:000|010|020|040|041|060|090|100|200|300|400|500|900)\b)'
+    )
+
+    posicoes = [
+        m.start()
+        for m in padrao_inicio_item.finditer(texto_produtos)
+    ]
+
+    posicoes.append(len(texto_produtos))
+
+    blocos = []
+
+    for i in range(len(posicoes) - 1):
+
+        inicio = posicoes[i]
+        fim = posicoes[i + 1]
+
+        bloco = texto_produtos[inicio:fim].strip()
+
+        if bloco:
+            blocos.append(bloco)
+
+    itens = []
+
+    # ==========================
+    # EXTRAI CAMPOS
+    # ==========================
+
+    regex_final = re.compile(
+        r'(?P<ncm>\d{8})\s+'
+        r'(?P<cfop>\d{4})\s+'
+        r'(?P<unidade>[A-Z]{2,4})\s+'
+        r'(?P<quantidade>[\d.,]+)\s+'
+        r'(?P<vlr_total>[\d.,]+)\s+'
+        r'(?P<vlr_unitario>[\d.,]+)',
+        re.IGNORECASE
+    )
+
+    for bloco in blocos:
+
+        cabecalho = re.match(
+            r'(?P<codigo>\d+)\s+(?P<cst>\d{3})\s+',
+            bloco
+        )
+
+        if not cabecalho:
+            continue
+
+        codigo = cabecalho.group("codigo")
+        cst = cabecalho.group("cst")
+
+        match_final = regex_final.search(bloco)
+
+        if not match_final:
+            continue
+
+        descricao = bloco[
+            cabecalho.end():match_final.start()
+        ].strip()
+
+        item = {
+            "empresa": nome_empresa,
+            "cnpj": cnpj_empresa,
+            "data": data_emissao,
+            "codigo": codigo,
+            "descricao": descricao,
+            "ncm": match_final.group("ncm"),
+            "cst": cst,
+            "cfop": match_final.group("cfop"),
+            "unidade": match_final.group("unidade"),
+            "quantidade": match_final.group("quantidade"),
+            "vlr_unitario": match_final.group("vlr_unitario"),
+            "vlr_total": match_final.group("vlr_total"),
+        }
+
+        itens.append(item)
+
+    # ==========================
+    # RESULTADO
+    # ==========================
+
+    if itens:
+
+        df = pd.DataFrame(itens)
+
+        df = df[
+            [
+                "empresa",
+                "cnpj",
+                "data",
+                "codigo",
+                "descricao",
+                "ncm",
+                "cst",
+                "cfop",
+                "unidade",
+                "quantidade",
+                "vlr_unitario",
+                "vlr_total",
+            ]
+        ]
+
+        df.columns = [
+            "Empresa",
+            "CNPJ",
+            "Data",
+            "Código",
+            "Descrição",
+            "NCM",
+            "CST",
+            "CFOP",
+            "Unidade",
+            "Qtd",
+            "Vlr. Unitário",
+            "Vlr. Total",
+        ]
+
+        st.success(
+            f"{len(df)} item(ns) encontrado(s)"
+        )
+
+        st.dataframe(
+            df,
+            use_container_width=True
+        )
+
+    else:
+
+        st.warning(
+            "Nenhum produto encontrado."
+        )
+
+    with st.expander("Texto extraído"):
+
+        st.text(texto_completo)

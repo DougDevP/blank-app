@@ -50,8 +50,7 @@ padrao_danfe = re.compile(
     r'(?P<quantidade>[\d.,]+)\s+'
     r'(?P<vlr_unitario>[\d.,]+)\s+'
     r'(?P<vlr_total>[\d.,]+)',
-    re.IGNORECASE
-)
+    re.IGNORECASE)
 
         itens = []
         for match in padrao_danfe.finditer(texto_completo):

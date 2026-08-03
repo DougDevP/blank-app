@@ -281,7 +281,8 @@ if arquivo_pdf is not None:
             )
 
             if st.button("Enviar para Sharepoint"):
-                requests.post(url)
+                payload=df.to_dict(orient="records")
+                requests.post(url,json=payload)
 
         else:
 

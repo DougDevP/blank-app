@@ -2,7 +2,7 @@ import streamlit as st
 import fitz
 import pandas as pd
 import re
-
+import requests
 # ==========================================
 # CONFIGURAÇÃO DA PÁGINA
 # ==========================================

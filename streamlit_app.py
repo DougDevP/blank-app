@@ -38,18 +38,20 @@ if arquivo_pdf is not None:
 
         # 3. Regex Especializada para os Itens do DANFE 
         # ATENÇÃO: O `(?:^|\n)` garante que o código seja SEMPRE lido no início de uma linha
-        padrao_danfe = re.compile(
-            r'(?:^|\n)(?P<codigo>\d+)\s+'                           
-            r'(?P<descricao>[\s\S]+?)'                             
-            r'\s+(?P<ncm>\d{8})\s+'                                
-            r'(?P<cst>\d{3,4})?\s*'                                
-            r'(?P<cfop>\d[.,]?\d{3})\s+'                           
-            r'(?P<unidade>[a-zA-Z]{2,4})\s+'                       
-            r'(?P<quantidade>[\d.,]+)\s+'                          
-            r'(?P<vlr_unitario>[\d.,]+)\s+'                        
-            r'(?P<vlr_total>[\d.,]+)',                             
-            re.IGNORECASE
-        )
+padrao_danfe = re.compile(
+    r'(?:DADOS DOS PRODUTOS\s*/\s*SERVIÇOS|DADOS DOS PRODUTOS/SERVIÇOS|Itens da nota fiscal)'
+    r'[\s\S]*?'
+    r'(?P<codigo>\d+)\s+'
+    r'(?P<descricao>[\s\S]+?)'
+    r'\s+(?P<ncm>\d{8})\s+'
+    r'(?P<cst>\d{3,4})?\s*'
+    r'(?P<cfop>\d{4})\s+'
+    r'(?P<unidade>[A-Za-z]{2,4})\s+'
+    r'(?P<quantidade>[\d.,]+)\s+'
+    r'(?P<vlr_unitario>[\d.,]+)\s+'
+    r'(?P<vlr_total>[\d.,]+)',
+    re.IGNORECASE
+)
 
         itens = []
         for match in padrao_danfe.finditer(texto_completo):

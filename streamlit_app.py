@@ -42,15 +42,15 @@ padrao_item = re.compile(
     r'(?P<codigo>\d{3,10})\s+'
     r'(?P<descricao>.*?)'
     r'\s+(?P<ncm>\d{8})'
-    r'(?:\s+(?P<cst>\d{3}))?'
+    r'(?:\s+(?P<cst>\d{3,4}))?'          # ATUALIZADO: Aceita CST (3) ou CSOSN (4)
     r'\s+(?P<cfop>\d\.?\d{3})'
     r'\s+(?P<unidade>[A-Za-z]{2,4})'
     r'\s+(?P<quantidade>[\d.,]+)'
     r'\s+(?P<vlr_unitario>[\d.,]+)'
+    r'(?:\s+(?P<vlr_desconto>[\d.,]+))?' # NOVO: Captura o valor de desconto opcional
     r'\s+(?P<vlr_total>[\d.,]+)',
     re.IGNORECASE
 )
-
 # ==========================================
 # PROCESSAMENTO
 # ==========================================

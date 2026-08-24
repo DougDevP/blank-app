@@ -1,5 +1,5 @@
 import streamlit as st
-import fitz
+import pdfplumber
 import pandas as pd
 import re
 import requests
@@ -7,13 +7,11 @@ import requests
 # ==========================================
 # POWER AUTOMATE
 # ==========================================
-
 url = "https://defaultca18acb0331244f2869d5b01ed8bb4.7d.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/31/workflows/c8f13fb65dd8488ab9fc574ba13f6f1a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=4BLzQi7_7vL1gjLfdAsCzJHkmAZKZc1HtYRLGuFy58s"
 
 # ==========================================
 # CONFIGURAÇÃO DA PÁGINA
 # ==========================================
-
 st.set_page_config(
     page_title="Extrator de Itens - DANFE",
     layout="wide"
@@ -21,13 +19,12 @@ st.set_page_config(
 
 st.title("📄 Extrator de Itens Faturados (DANFE)")
 st.write(
-    "Extrai produtos, quantidades, valores e dados gerais de uma ou mais notas fiscais."
+    "Extrai produtos, quantidades, valores e dados gerais de notas fiscais usando leitura estruturada."
 )
 
 # ==========================================
 # UPLOAD
 # ==========================================
-
 arquivos_pdf = st.file_uploader(
     "Selecione uma ou mais Notas Fiscais",
     type=["pdf"],
@@ -35,50 +32,32 @@ arquivos_pdf = st.file_uploader(
 )
 
 # ==========================================
-# REGEX PRODUTOS (Linha a Linha)
-# ==========================================
-padrao_item = re.compile(
-    r'^(?P<codigo>\d{3,10})\s+'
-    r'(?P<descricao>.*?)\s+'
-    r'(?P<ncm>\d{8})\s+'
-    r'(?P<cst>\d{2,4})?\s*'
-    r'(?P<cfop>\d\.?\d{3})\s+'
-    r'(?P<unidade>[A-Za-z]{2,4})\s+'
-    r'(?P<quantidade>[\d.,]+)\s+'
-    r'(?P<vlr_unitario>[\d.,]+)\s+'
-    r'(?P<vlr_total>[\d.,]+)',
-    re.IGNORECASE
-)
-
-# ==========================================
 # PROCESSAMENTO
 # ==========================================
-
 if arquivos_pdf:
     with st.spinner("Analisando notas fiscais..."):
         todos_itens = []
 
         for arquivo_pdf in arquivos_pdf:
+            texto_completo = ""
+            tabelas_encontradas = []
+
             try:
-                pdf = fitz.open(
-                    stream=arquivo_pdf.read(),
-                    filetype="pdf"
-                )
-                
-                linhas_texto = []
-                for pagina in pdf:
-                    # Extrai linha por linha mantendo a estrutura vertical
-                    texto_pagina = pagina.get_text("text")
-                    for linha in texto_pagina.split("\n"):
-                        linhas_texto.append(linha.strip())
+                with pdfplumber.open(arquivo_pdf) as pdf:
+                    for pagina in pdf.pages:
+                        # Extrai texto para dados gerais
+                        t = pagina.extract_text()
+                        if t:
+                            texto_completo += t + "\n"
                         
-                pdf.close()
+                        # Extrai tabelas visuais da página
+                        tables = pagina.extract_tables()
+                        if tables:
+                            tabelas_encontradas.extend(tables)
+
             except Exception as e:
                 st.error(f"Erro ao ler o arquivo {arquivo_pdf.name}: {e}")
                 continue
-
-            # Junta tudo em um texto com quebras de linha preservadas para os dados gerais
-            texto_completo = "\n".join(linhas_texto)
 
             # ==========================================
             # DADOS GERAIS
@@ -97,49 +76,82 @@ if arquivos_pdf:
             data_emissao = match_data.group(0) if match_data else "Data não identificada"
 
             # ==========================================
-            # EXTRAÇÃO LINHA A LINHA DOS PRODUTOS
+            # EXTRAÇÃO INTELIGENTE DAS TABELAS
             # ==========================================
-            capturando_produtos = False
+            produto_encontrado = False
             
-            for linha in linhas_texto:
-                # Detecta início da tabela
-                if any(p in linha.upper() for p in ["DADOS DOS PRODUTOS", "DADOS DOS PRODUTOS/SERVIÇOS", "ITENS DA NOTA FISCAL"]):
-                    capturando_produtos = True
-                    continue
-                
-                # Detecta fim da tabela
-                if any(f in linha.upper() for f in ["CÁLCULO DO ISSQN", "CALCULO DO ISSQN", "DADOS ADICIONAIS", "INFORMAÇÕES COMPLEMENTARES", "RESERVADO AO FISCO"]):
-                    capturando_produtos = False
+            for tabela in tabelas_encontradas:
+                for linha in tabela:
+                    # Filtra linhas vazias ou cabeçalhos comuns de DANFE
+                    linha_txt = " ".join([str(celula) for celula in linha if celula])
                     
-                if capturando_produtos:
-                    match = padrao_item.match(linha)
-                    if match:
-                        item = match.groupdict()
-                        if not item.get("cst"):
-                            item["cst"] = "N/I"
+                    if any(c in linha_txt.upper() for c in ["CÓDIGO", "CODIGO", "DESCRIÇÃO", "NCM", "CFOP", "VALOR"]):
+                        continue # Pula o cabeçalho da tabela
+                    
+                    # Tenta identificar se a linha parece um item (procurando NCM com 8 dígitos ou valores numéricos consistentes)
+                    # Uma linha de produto geralmente tem vários elementos preenchidos
+                    elementos_validos = [cel for cel in linha if cel and cel.strip()]
+                    if len(elementos_validos) >= 5: # Linhas com dados suficientes para ser um item
+                        # Tentativa de mapear colunas por heurística ou ordem comum em DANFEs
+                        # Geralmente: [Codigo, Descricao, NCM, CST, CFOP, Unidade, Qtd, VlUnit, VlTotal]
+                        # Como os layouts mudam, pegamos os campos principais com base na estrutura da linha
                         
-                        item["arquivo"] = arquivo_pdf.name
-                        item["empresa"] = nome_empresa
-                        item["cnpj"] = cnpj_empresa
-                        item["data"] = data_emissao
+                        try:
+                            # Tentamos extrair valores numéricos nas últimas posições e texto nas primeiras
+                            codigo = elementos_validos[0]
+                            descricao = elementos_validos[1]
+                            
+                            # Varre os elementos para achar o NCM (8 dígitos)
+                            ncm = "N/I"
+                            cst = "N/I"
+                            cfop = "N/I"
+                            unidade = "UN"
+                            quantidade = "1"
+                            vlr_unitario = "0,00"
+                            vlr_total = "0,00"
+                            
+                            # Heurística para preencher colunas baseada no conteúdo das células da linha
+                            for item_cel in elementos_validos:
+                                item_cel_limpo = item_cel.strip()
+                                if re.match(r'^\d{8}$', item_cel_limpo):
+                                    ncm = item_cel_limpo
+                                elif re.match(r'^\d\.?\d{3}$', item_cel_limpo):
+                                    cfop = item_cel_limpo
+                                elif re.match(r'^[A-Za-z]{2,4}$', item_cel_limpo) and len(item_cel_limpo) <= 4:
+                                    unidade = item_cel_limpo
 
-                        todos_itens.append(item)
+                            # Os últimos elementos da linha costumam ser Quantidade, Vlr Unit e Vl Total
+                            if len(elementos_validos) >= 3:
+                                vlr_total = elementos_validos[-1]
+                                vlr_unitario = elementos_validos[-2] if len(elementos_validos) >= 4 else "0,00"
+                                quantidade = elementos_validos[-3] if len(elementos_validos) >= 5 else "1"
+
+                            item = {
+                                "arquivo": arquivo_pdf.name,
+                                "empresa": nome_empresa,
+                                "cnpj": cnpj_empresa,
+                                "data": data_emissao,
+                                "codigo": codigo,
+                                "descricao": descricao,
+                                "ncm": ncm,
+                                "cst": cst,
+                                "cfop": cfop,
+                                "unidade": unidade,
+                                "quantidade": quantidade,
+                                "vlr_unitario": vlr_unitario,
+                                "vlr_total": vlr_total
+                            }
+                            
+                            todos_itens.append(item)
+                            produto_encontrado = True
+                        except Exception:
+                            continue
 
         # ==========================================
         # RESULTADO FINAL
         # ==========================================
         if len(todos_itens) > 0:
             df = pd.DataFrame(todos_itens)
-            
-            # Garante colunas essenciais
-            colunas_desejadas = [
-                "arquivo", "empresa", "cnpj", "data", "codigo", 
-                "descricao", "ncm", "cst", "cfop", "unidade", 
-                "quantidade", "vlr_unitario", "vlr_total"
-            ]
-            
-            # Filtra apenas as que existem
-            df = df[[c for c in colunas_desejadas if c in df.columns]]
 
             df.columns = [
                 "Arquivo", "Empresa", "CNPJ", "Data", "Código", 
@@ -171,4 +183,4 @@ if arquivos_pdf:
                 except Exception as e:
                     st.error(f"Erro na comunicação: {e}")
         else:
-            st.warning("Nenhum produto encontrado nos arquivos enviados. Verifique o layout do PDF.")
+            st.warning("Nenhum produto foi extraído automaticamente. Como as notas não seguem um padrão, verifique se o PDF é digital ou escaneado (imagem).")

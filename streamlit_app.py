@@ -1,5 +1,5 @@
 import streamlit as st
-import pdfplumber
+import fitz
 import pandas as pd
 import re
 import requests
@@ -7,11 +7,13 @@ import requests
 # ==========================================
 # POWER AUTOMATE
 # ==========================================
+
 url = "https://defaultca18acb0331244f2869d5b01ed8bb4.7d.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/31/workflows/c8f13fb65dd8488ab9fc574ba13f6f1a/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=4BLzQi7_7vL1gjLfdAsCzJHkmAZKZc1HtYRLGuFy58s"
 
 # ==========================================
 # CONFIGURAÇÃO DA PÁGINA
 # ==========================================
+
 st.set_page_config(
     page_title="Extrator de Itens - DANFE",
     layout="wide"
@@ -19,12 +21,13 @@ st.set_page_config(
 
 st.title("📄 Extrator de Itens Faturados (DANFE)")
 st.write(
-    "Extrai produtos, quantidades, valores e dados gerais de notas fiscais usando leitura estruturada."
+    "Extrai produtos, quantidades, valores e dados gerais de uma ou mais notas fiscais."
 )
 
 # ==========================================
 # UPLOAD
 # ==========================================
+
 arquivos_pdf = st.file_uploader(
     "Selecione uma ou mais Notas Fiscais",
     type=["pdf"],
@@ -32,146 +35,236 @@ arquivos_pdf = st.file_uploader(
 )
 
 # ==========================================
+# REGEX PRODUTOS
+# ==========================================
+
+padrao_item = re.compile(
+    r'(?P<codigo>\d{3,10})\s+'
+    r'(?P<descricao>.*?)'
+    r'\s+(?P<ncm>\d{8})'
+    r'(?:\s+(?P<cst>\d{3,4}))?'          # ATUALIZADO: Aceita CST (3) ou CSOSN (4)
+    r'\s+(?P<cfop>\d\.?\d{3})'
+    r'\s+(?P<unidade>[A-Za-z]{2,4})'
+    r'\s+(?P<quantidade>[\d.,]+)'
+    r'\s+(?P<vlr_unitario>[\d.,]+)'
+    r'(?:\s+(?P<vlr_desconto>[\d.,]+))?' # NOVO: Captura o valor de desconto opcional
+    r'\s+(?P<vlr_total>[\d.,]+)',
+    re.IGNORECASE
+)
+# ==========================================
 # PROCESSAMENTO
 # ==========================================
+
 if arquivos_pdf:
+
     with st.spinner("Analisando notas fiscais..."):
+
         todos_itens = []
 
         for arquivo_pdf in arquivos_pdf:
+
             texto_completo = ""
-            tabelas_encontradas = []
 
             try:
-                with pdfplumber.open(arquivo_pdf) as pdf:
-                    for pagina in pdf.pages:
-                        # Extrai texto para dados gerais
-                        t = pagina.extract_text()
-                        if t:
-                            texto_completo += t + "\n"
-                        
-                        # Extrai tabelas visuais da página
-                        tables = pagina.extract_tables()
-                        if tables:
-                            tabelas_encontradas.extend(tables)
+
+                pdf = fitz.open(
+                    stream=arquivo_pdf.read(),
+                    filetype="pdf"
+                )
+
+                for pagina in pdf:
+                    texto_completo += pagina.get_text() + "\n"
+
+                pdf.close()
 
             except Exception as e:
-                st.error(f"Erro ao ler o arquivo {arquivo_pdf.name}: {e}")
+
+                st.error(
+                    f"Erro ao ler o arquivo {arquivo_pdf.name}: {e}"
+                )
                 continue
 
             # ==========================================
-            # DADOS GERAIS (Refatorado)
+            # DADOS GERAIS
             # ==========================================
-            # 1. Extração da Empresa (com suporte a variações)
+
             match_empresa = re.search(
-                r'RECEBEMOS\s+DE\s+(.*?)\s+(?:OS\s+PRODUTOS|AS\s+MERCADORIAS|OS\s+SERVI[ÇC]OS)',
-                texto_completo,
-                re.IGNORECASE | re.DOTALL
-            )
-            nome_empresa = match_empresa.group(1).strip().replace('\n', ' ') if match_empresa else "Empresa não identificada"
-
-            # 2. Extração de CNPJ (ignorando o destinatário)
-            cnpj_destinatario = "11.561.855/0002-99"
-            todos_cnpjs = re.findall(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}', texto_completo)
-            cnpjs_validos = [cnpj for cnpj in todos_cnpjs if cnpj != cnpj_destinatario]
-            cnpj_empresa = cnpjs_validos[0] if cnpjs_validos else "CNPJ não identificado"
-
-            # 3. Extração da Data de Emissão (ancorada)
-            match_data = re.search(
-                r'(?:DATA\s+D[EA]\s+EMISSÃO|EMISSÃO)[\s:]*(\d{2}/\d{2}/\d{4})',
+                r'RECEBEMOS\s+DE\s+(.*?)\s+OS\s+PRODUTOS',
                 texto_completo,
                 re.IGNORECASE
             )
-            data_emissao = match_data.group(1) if match_data else "Data não identificada"
+
+            nome_empresa = (
+                match_empresa.group(1).strip()
+                if match_empresa
+                else "Empresa não identificada"
+            )
+
+            match_cnpj = re.search(
+                r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}',
+                texto_completo
+            )
+
+            cnpj_empresa = (
+                match_cnpj.group(0)
+                if match_cnpj
+                else "CNPJ não identificado"
+            )
+
+            match_data = re.search(
+                r'\d{2}/\d{2}/\d{4}',
+                texto_completo
+            )
+
+            data_emissao = (
+                match_data.group(0)
+                if match_data
+                else "Data não identificada"
+            )
 
             # ==========================================
-            # EXTRAÇÃO INTELIGENTE DAS TABELAS
+            # ENCONTRA TABELA DE PRODUTOS
             # ==========================================
-            produto_encontrado = False
-            
-            for tabela in tabelas_encontradas:
-                for linha in tabela:
-                    # Filtra linhas vazias ou cabeçalhos comuns de DANFE
-                    linha_txt = " ".join([str(celula) for celula in linha if celula])
-                    
-                    if any(c in linha_txt.upper() for c in ["CÓDIGO", "CODIGO", "DESCRIÇÃO", "NCM", "CFOP", "VALOR"]):
-                        continue # Pula o cabeçalho da tabela
-                    
-                    # Tenta identificar se a linha parece um item (procurando NCM com 8 dígitos ou valores numéricos consistentes)
-                    # Uma linha de produto geralmente tem vários elementos preenchidos
-                    elementos_validos = [cel for cel in linha if cel and cel.strip()]
-                    if len(elementos_validos) >= 5: # Linhas com dados suficientes para ser um item
-                        # Tentativa de mapear colunas por heurística ou ordem comum em DANFEs
-                        # Geralmente: [Codigo, Descricao, NCM, CST, CFOP, Unidade, Qtd, VlUnit, VlTotal]
-                        # Como os layouts mudam, pegamos os campos principais com base na estrutura da linha
-                        
-                        try:
-                            # Tentamos extrair valores numéricos nas últimas posições e texto nas primeiras
-                            codigo = elementos_validos[0]
-                            descricao = elementos_validos[1]
-                            
-                            # Varre os elementos para achar o NCM (8 dígitos)
-                            ncm = "N/I"
-                            cst = "N/I"
-                            cfop = "N/I"
-                            unidade = "UN"
-                            quantidade = "1"
-                            vlr_unitario = "0,00"
-                            vlr_total = "0,00"
-                            
-                            # Heurística para preencher colunas baseada no conteúdo das células da linha
-                            for item_cel in elementos_validos:
-                                item_cel_limpo = item_cel.strip()
-                                if re.match(r'^\d{8}$', item_cel_limpo):
-                                    ncm = item_cel_limpo
-                                elif re.match(r'^\d\.?\d{3}$', item_cel_limpo):
-                                    cfop = item_cel_limpo
-                                elif re.match(r'^[A-Za-z]{2,4}$', item_cel_limpo) and len(item_cel_limpo) <= 4:
-                                    unidade = item_cel_limpo
 
-                            # Os últimos elementos da linha costumam ser Quantidade, Vlr Unit e Vl Total
-                            if len(elementos_validos) >= 3:
-                                vlr_total = elementos_validos[-1]
-                                vlr_unitario = elementos_validos[-2] if len(elementos_validos) >= 4 else "0,00"
-                                quantidade = elementos_validos[-3] if len(elementos_validos) >= 5 else "1"
+            padroes_inicio = [
+                r'DADOS\s+DOS\s+PRODUTOS\s*/\s*SERVIÇOS',
+                r'DADOS\s+DOS\s+PRODUTOS/SERVIÇOS',
+                r'Itens\s+da\s+nota\s+fiscal'
+            ]
 
-                            item = {
-                                "arquivo": arquivo_pdf.name,
-                                "empresa": nome_empresa,
-                                "cnpj": cnpj_empresa,
-                                "data": data_emissao,
-                                "codigo": codigo,
-                                "descricao": descricao,
-                                "ncm": ncm,
-                                "cst": cst,
-                                "cfop": cfop,
-                                "unidade": unidade,
-                                "quantidade": quantidade,
-                                "vlr_unitario": vlr_unitario,
-                                "vlr_total": vlr_total
-                            }
-                            
-                            todos_itens.append(item)
-                            produto_encontrado = True
-                        except Exception:
-                            continue
+            texto_produtos = ""
+
+            for padrao in padroes_inicio:
+
+                match = re.search(
+                    padrao,
+                    texto_completo,
+                    re.IGNORECASE
+                )
+
+                if match:
+                    texto_produtos = texto_completo[
+                        match.end():
+                    ]
+                    break
+
+            if not texto_produtos:
+
+                st.warning(
+                    f"Não foi possível localizar os produtos em {arquivo_pdf.name}"
+                )
+                continue
+
+            # ==========================================
+            # REMOVE RODAPÉ
+            # ==========================================
+
+            fim_tabela = re.search(
+                r'(CÁLCULO\s+DO\s+ISSQN|'
+                r'CALCULO\s+DO\s+ISSQN|'
+                r'DADOS\s+ADICIONAIS|'
+                r'INFORMAÇÕES\s+COMPLEMENTARES|'
+                r'INFORMACOES\s+COMPLEMENTARES|'
+                r'RESERVADO\s+AO\s+FISCO)',
+                texto_produtos,
+                re.IGNORECASE
+            )
+
+            if fim_tabela:
+                texto_produtos = texto_produtos[
+                    :fim_tabela.start()
+                ]
+
+            texto_produtos = re.sub(
+                r'\s+',
+                ' ',
+                texto_produtos
+            )
+
+            # ==========================================
+            # EXTRAÇÃO DOS ITENS
+            # ==========================================
+
+            for match in padrao_item.finditer(
+                texto_produtos
+            ):
+
+                item = match.groupdict()
+
+                item["descricao"] = re.sub(
+                    r'\s+',
+                    ' ',
+                    item["descricao"]
+                ).strip()
+
+                if not item["cst"]:
+                    item["cst"] = "N/I"
+
+                item["arquivo"] = arquivo_pdf.name
+                item["empresa"] = nome_empresa
+                item["cnpj"] = cnpj_empresa
+                item["data"] = data_emissao
+
+                todos_itens.append(item)
 
         # ==========================================
         # RESULTADO FINAL
         # ==========================================
+
         if len(todos_itens) > 0:
+
             df = pd.DataFrame(todos_itens)
 
-            df.columns = [
-                "Arquivo", "Empresa", "CNPJ", "Data", "Código", 
-                "Descrição", "NCM", "CST", "CFOP", "Unidade", 
-                "Quantidade", "Valor Unitário", "Valor Total"
+            df = df[
+                [
+                    "arquivo",
+                    "empresa",
+                    "cnpj",
+                    "data",
+                    "codigo",
+                    "descricao",
+                    "ncm",
+                    "cst",
+                    "cfop",
+                    "unidade",
+                    "quantidade",
+                    "vlr_unitario",
+                    "vlr_total"
+                ]
             ]
 
-            st.success(f"Foram encontrados {len(df)} produto(s) em {len(arquivos_pdf)} arquivo(s).")
-            st.dataframe(df, use_container_width=True)
+            df.columns = [
+                "Arquivo",
+                "Empresa",
+                "CNPJ",
+                "Data",
+                "Código",
+                "Descrição",
+                "NCM",
+                "CST",
+                "CFOP",
+                "Unidade",
+                "Quantidade",
+                "Valor Unitário",
+                "Valor Total"
+            ]
 
-            csv = df.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
+            st.success(
+                f"Foram encontrados {len(df)} produto(s) em {len(arquivos_pdf)} arquivo(s)."
+            )
+
+            st.dataframe(
+                df,
+                use_container_width=True
+            )
+
+            csv = df.to_csv(
+                index=False,
+                sep=";",
+                encoding="utf-8-sig"
+            ).encode(
+                "utf-8-sig"
+            )
 
             st.download_button(
                 "📥 Baixar CSV Consolidado",
@@ -180,16 +273,50 @@ if arquivos_pdf:
                 mime="text/csv"
             )
 
+            # ==========================================
+            # ENVIO SHAREPOINT / POWER AUTOMATE
+            # ==========================================
+
             if st.button("Enviar para SharePoint"):
-                payload = df.to_dict(orient="records")
+
+                payload = df.to_dict(
+                    orient="records"
+                )
+
                 try:
-                    response = requests.post(url, json=payload, timeout=120)
-                    if response.status_code in [200, 201, 202]:
-                        st.success(f"{len(df)} registros enviados com sucesso.")
+
+                    response = requests.post(
+                        url,
+                        json=payload,
+                        timeout=120
+                    )
+
+                    if response.status_code in [
+                        200,
+                        201,
+                        202
+                    ]:
+
+                        st.success(
+                            f"{len(df)} registros enviados com sucesso."
+                        )
+
                     else:
-                        st.error(f"Erro ao enviar. Status: {response.status_code}")
+
+                        st.error(
+                            f"Erro ao enviar. Status: {response.status_code}"
+                        )
+
                         st.text(response.text)
+
                 except Exception as e:
-                    st.error(f"Erro na comunicação: {e}")
+
+                    st.error(
+                        f"Erro na comunicação: {e}"
+                    )
+
         else:
-            st.warning("Nenhum produto foi extraído automaticamente. Como as notas não seguem um padrão, verifique se o PDF é digital ou escaneado (imagem).")
+
+            st.warning(
+                "Nenhum produto encontrado nos arquivos enviados."
+            )

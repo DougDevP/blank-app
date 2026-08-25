@@ -35,22 +35,23 @@ arquivos_pdf = st.file_uploader(
 )
 
 # ==========================================
-# REGEX PRODUTOS
+# REGEX PRODUTOS (Principal)
 # ==========================================
 
 padrao_item = re.compile(
     r'(?P<codigo>\d{3,10})\s+'
     r'(?P<descricao>.*?)'
     r'\s+(?P<ncm>\d{8})'
-    r'(?:\s+(?P<cst>\d{3,4}))?'          # ATUALIZADO: Aceita CST (3) ou CSOSN (4)
+    r'(?:\s+(?P<cst>\d{3,4}))?'          # Aceita CST (3) ou CSOSN (4)
     r'\s+(?P<cfop>\d\.?\d{3})'
     r'\s+(?P<unidade>[A-Za-z]{2,4})'
     r'\s+(?P<quantidade>[\d.,]+)'
     r'\s+(?P<vlr_unitario>[\d.,]+)'
-    r'(?:\s+(?P<vlr_desconto>[\d.,]+))?' # NOVO: Captura o valor de desconto opcional
+    r'(?:\s+(?P<vlr_desconto>[\d.,]+))?' # Captura o valor de desconto opcional
     r'\s+(?P<vlr_total>[\d.,]+)',
     re.IGNORECASE
 )
+
 # ==========================================
 # PROCESSAMENTO
 # ==========================================
@@ -66,7 +67,6 @@ if arquivos_pdf:
             texto_completo = ""
 
             try:
-
                 pdf = fitz.open(
                     stream=arquivo_pdf.read(),
                     filetype="pdf"
@@ -78,7 +78,6 @@ if arquivos_pdf:
                 pdf.close()
 
             except Exception as e:
-
                 st.error(
                     f"Erro ao ler o arquivo {arquivo_pdf.name}: {e}"
                 )
@@ -135,7 +134,6 @@ if arquivos_pdf:
             texto_produtos = ""
 
             for padrao in padroes_inicio:
-
                 match = re.search(
                     padrao,
                     texto_completo,
@@ -143,13 +141,10 @@ if arquivos_pdf:
                 )
 
                 if match:
-                    texto_produtos = texto_completo[
-                        match.end():
-                    ]
+                    texto_produtos = texto_completo[match.end():]
                     break
 
             if not texto_produtos:
-
                 st.warning(
                     f"Não foi possível localizar os produtos em {arquivo_pdf.name}"
                 )
@@ -171,9 +166,7 @@ if arquivos_pdf:
             )
 
             if fim_tabela:
-                texto_produtos = texto_produtos[
-                    :fim_tabela.start()
-                ]
+                texto_produtos = texto_produtos[:fim_tabela.start()]
 
             texto_produtos = re.sub(
                 r'\s+',
@@ -182,23 +175,53 @@ if arquivos_pdf:
             )
 
             # ==========================================
-            # EXTRAÇÃO DOS ITENS
+            # EXTRAÇÃO DOS ITENS COM FALLBACK
             # ==========================================
+            
+            itens_encontrados_nesta_nota = []
 
-            for match in padrao_item.finditer(
-                texto_produtos
-            ):
+            # --- TENTATIVA 1: O seu Regex Principal Rigoroso ---
+            for match in padrao_item.finditer(texto_produtos):
+                itens_encontrados_nesta_nota.append(match.groupdict())
 
-                item = match.groupdict()
+            # --- TENTATIVA 2: Fallback se a Tentativa 1 falhar ---
+            if len(itens_encontrados_nesta_nota) == 0:
+                padrao_fallback = re.compile(
+                    r'(?P<codigo>\d{2,15})\s+'
+                    r'(?P<descricao>.*?)\s+'
+                    r'(?P<ncm>\d{8}).*?'
+                    r'(?P<unidade>UN|CX|PC|PR|KG|BT|M2|L)\s+'
+                    r'(?P<quantidade>[\d.,]+)\s+'
+                    r'(?P<vlr_unitario>[\d.,]+).*?'
+                    r'(?P<vlr_total>\d{1,3}(?:\.\d{3})*,\d{2})', 
+                    re.IGNORECASE
+                )
+                
+                try:
+                    for match in padrao_fallback.finditer(texto_produtos):
+                        dict_item = match.groupdict()
+                        dict_item["cst"] = "N/I"
+                        dict_item["cfop"] = "N/I"
+                        itens_encontrados_nesta_nota.append(dict_item)
+                except Exception as ex:
+                    st.warning(f"Falha ao executar o fallback na nota {arquivo_pdf.name}: {ex}")
 
+            # ==========================================
+            # TRATAMENTO E INCLUSÃO NO DATAFRAME GERAL
+            # ==========================================
+            
+            for item in itens_encontrados_nesta_nota:
                 item["descricao"] = re.sub(
-                    r'\s+',
-                    ' ',
-                    item["descricao"]
+                    r'\s+', 
+                    ' ', 
+                    item.get("descricao", "")
                 ).strip()
 
-                if not item["cst"]:
+                if not item.get("cst"):
                     item["cst"] = "N/I"
+                    
+                if not item.get("cfop"):
+                    item["cfop"] = "N/I"
 
                 item["arquivo"] = arquivo_pdf.name
                 item["empresa"] = nome_empresa
@@ -215,6 +238,8 @@ if arquivos_pdf:
 
             df = pd.DataFrame(todos_itens)
 
+            # Filtra e ordena apenas as colunas desejadas para evitar erros 
+            # caso o regex opcional de desconto adicione uma chave a mais
             df = df[
                 [
                     "arquivo",

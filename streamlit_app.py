@@ -60,20 +60,29 @@ if arquivos_pdf:
                 continue
 
             # ==========================================
-            # DADOS GERAIS
+            # DADOS GERAIS (Refatorado)
             # ==========================================
+            # 1. Extração da Empresa (com suporte a variações)
             match_empresa = re.search(
-                r'RECEBEMOS\s+DE\s+(.*?)\s+OS\s+PRODUTOS',
+                r'RECEBEMOS\s+DE\s+(.*?)\s+(?:OS\s+PRODUTOS|AS\s+MERCADORIAS|OS\s+SERVI[ÇC]OS)',
+                texto_completo,
+                re.IGNORECASE | re.DOTALL
+            )
+            nome_empresa = match_empresa.group(1).strip().replace('\n', ' ') if match_empresa else "Empresa não identificada"
+
+            # 2. Extração de CNPJ (ignorando o destinatário)
+            cnpj_destinatario = "11.561.855/0002-99"
+            todos_cnpjs = re.findall(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}', texto_completo)
+            cnpjs_validos = [cnpj for cnpj in todos_cnpjs if cnpj != cnpj_destinatario]
+            cnpj_empresa = cnpjs_validos[0] if cnpjs_validos else "CNPJ não identificado"
+
+            # 3. Extração da Data de Emissão (ancorada)
+            match_data = re.search(
+                r'(?:DATA\s+D[EA]\s+EMISSÃO|EMISSÃO)[\s:]*(\d{2}/\d{2}/\d{4})',
                 texto_completo,
                 re.IGNORECASE
             )
-            nome_empresa = match_empresa.group(1).strip() if match_empresa else "Empresa não identificada"
-
-            match_cnpj = re.search(r'\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}', texto_completo)
-            cnpj_empresa = match_cnpj.group(0) if match_cnpj else "CNPJ não identificado"
-
-            match_data = re.search(r'\d{2}/\d{2}/\d{4}', texto_completo)
-            data_emissao = match_data.group(0) if match_data else "Data não identificada"
+            data_emissao = match_data.group(1) if match_data else "Data não identificada"
 
             # ==========================================
             # EXTRAÇÃO INTELIGENTE DAS TABELAS

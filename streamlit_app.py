@@ -39,19 +39,17 @@ arquivos_pdf = st.file_uploader(
 # ==========================================
 
 padrao_item = re.compile(
-    r'(?P<codigo>\d{3,10})\s+'
-    r'(?P<descricao>.*?)'
-    r'\s+(?P<ncm>\d{8})'
-    r'(?:\s+(?P<cst>\d{3,4}))?'          # Aceita CST (3) ou CSOSN (4)
-    r'\s+(?P<cfop>\d\.?\d{3})'
-    r'\s+(?P<unidade>[A-Za-z]{2,4})'
-    r'\s+(?P<quantidade>[\d.,]+)'
-    r'\s+(?P<vlr_unitario>[\d.,]+)'
-    r'(?:\s+(?P<vlr_desconto>[\d.,]+))?' # Captura o valor de desconto opcional
-    r'\s+(?P<vlr_total>[\d.,]+)',
+    r'(?P<codigo>\d{3,10})\s*\|\s*'                # Código seguido opcionalmente de pipe
+    r'(?P<descricao>.*?)\s*\|\s*'                 # Descrição até o próximo pipe
+    r'(?P<ncm>\d{8})\s*\|\s*'                     # NCM de 8 dígitos
+    r'(?P<cst>\d{3,4})\s*\|\s*'                   # CST/CSOSN
+    r'(?P<cfop>\d\.?\d{3})\s*\|\s*'               # CFOP
+    r'(?P<unidade>[A-Za-z]{2,4})\s*\|\s*'         # Unidade
+    r'(?P<quantidade>[\d.,]+)\s*\|\s*'            # Quantidade
+    r'(?P<vlr_unitario>[\d.,]+)\s*\|\s*'          # Valor unitário
+    r'(?P<vlr_total>[\d.,]+)',                    # Valor total
     re.IGNORECASE
 )
-
 # ==========================================
 # PROCESSAMENTO
 # ==========================================

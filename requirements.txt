@@ -2,6 +2,7 @@ streamlit
 pdfplumber
 pandas
 PyPDF2
+google-generativeai
 openai
 PyMuPDF  # instead of fitz
 requests

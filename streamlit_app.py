@@ -8,8 +8,7 @@ import google.generativeai as genai
 # ==========================================
 # CONFIGURAÇÃO DA API DO GEMINI
 # ==========================================
-genai.configure(api_key="SUA_CHAVE_API_GEMINI")
-
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 # ==========================================
 # POWER AUTOMATE
 # ==========================================

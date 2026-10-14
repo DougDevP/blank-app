@@ -6,9 +6,20 @@ import requests
 import google.generativeai as genai
 
 # ==========================================
-# CONFIGURAÇÃO DA API DO GEMINI
+# CONFIGURAÇÃO DA API DO GEMINI (COM PROTEÇÃO)
 # ==========================================
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+try:
+    # Tenta carregar dos secrets do Streamlit
+    api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    api_key = None
+
+if api_key:
+    genai.configure(api_key=api_key)
+else:
+    st.error("⚠️ Chave 'GEMINI_API_KEY' não encontrada nos segredos do Streamlit. Certifique-se de configurá-la no painel do Streamlit Cloud ou na pasta .streamlit/secrets.toml")
+    st.stop()
+
 # ==========================================
 # POWER AUTOMATE
 # ==========================================
@@ -67,7 +78,6 @@ def extrair_dados_com_gemini(texto_pdf):
     """
 
     try:
-        # Utiliza o modelo Gemini para gerar o conteúdo em JSON estruturado
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(
             prompt,
@@ -76,7 +86,6 @@ def extrair_dados_com_gemini(texto_pdf):
         
         dados = json.loads(response.text)
         
-        # Garante o retorno como lista de itens
         if isinstance(dados, dict):
             for chave, valor in dados.items():
                 if isinstance(valor, list):
@@ -116,13 +125,11 @@ if arquivos_pdf:
                 st.warning(f"O ficheiro {arquivo_pdf.name} não contém texto legível.")
                 continue
 
-            # Extração via Gemini
             itens_extraidos = extrair_dados_com_gemini(texto_completo)
 
             for item in itens_extraidos:
                 item["arquivo"] = arquivo_pdf.name
                 
-                # Assegura que todas as chaves obrigatórias existam
                 for chave_padrao in ["empresa", "cnpj", "data", "codigo", "descricao", "ncm", "cst", "cfop", "unidade", "quantidade", "vlr_unitario", "vlr_total", "frete"]:
                     if chave_padrao not in item or not item[chave_padrao]:
                         item[chave_padrao] = "N/I" if chave_padrao in ["codigo", "ncm", "cst", "cfop"] else "0,00"

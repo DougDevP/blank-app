@@ -3,13 +3,12 @@ import fitz
 import pandas as pd
 import json
 import requests
-from openai import OpenAI
+import google.generativeai as genai
 
 # ==========================================
-# CONFIGURAÇÃO DA API OPENAI
+# CONFIGURAÇÃO DA API DO GEMINI
 # ==========================================
-# Certifique-se de configurar a sua chave de API (pode usar st.secrets["OPENAI_API_KEY"])
-client = OpenAI(api_key="SUA_CHAVE_API_OPENAI")
+genai.configure(api_key="SUA_CHAVE_API_GEMINI")
 
 # ==========================================
 # POWER AUTOMATE
@@ -22,13 +21,13 @@ url = "https://defaultca18acb0331244f2869d5b01ed8bb4.7d.environment.api.powerpla
 # ==========================================
 
 st.set_page_config(
-    page_title="Extrator de Itens - Notas Fiscais via IA",
+    page_title="Extrator de Itens - Notas Fiscais via Gemini",
     layout="wide"
 )
 
-st.title("📄 Extrator de Itens Faturados (DANFE & NFS-e via IA)")
+st.title("📄 Extrator de Itens Faturados (DANFE & NFS-e via Gemini)")
 st.write(
-    "Extrai produtos, serviços, quantidades, valores, frete e dados gerais de notas fiscais utilizando Inteligência Artificial."
+    "Extrai produtos, serviços, quantidades, valores, frete e dados gerais de notas fiscais utilizando o Google Gemini."
 )
 
 # ==========================================
@@ -42,9 +41,9 @@ arquivos_pdf = st.file_uploader(
 )
 
 # ==========================================
-# FUNÇÃO DE EXTRAÇÃO VIA IA
+# FUNÇÃO DE EXTRAÇÃO VIA GEMINI
 # ==========================================
-def extrair_dados_com_ia(texto_pdf):
+def extrair_dados_com_gemini(texto_pdf):
     prompt = f"""
     Você é um assistente especialista em contabilidade e extração de dados de notas fiscais brasileiras (DANFE e NFS-e).
     Analise o texto completo da nota fiscal abaixo e extraia todos os itens faturados (produtos ou serviços).
@@ -69,17 +68,14 @@ def extrair_dados_com_ia(texto_pdf):
     """
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Você extrai dados estruturados de notas fiscais e responde estritamente em formato JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"}
+        # Utiliza o modelo Gemini para gerar o conteúdo em JSON estruturado
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"}
         )
         
-        conteudo = response.choices[0].message.content
-        dados = json.loads(conteudo)
+        dados = json.loads(response.text)
         
         # Garante o retorno como lista de itens
         if isinstance(dados, dict):
@@ -91,7 +87,7 @@ def extrair_dados_com_ia(texto_pdf):
             return dados
         return []
     except Exception as e:
-        st.error(f"Erro ao processar com a IA: {e}")
+        st.error(f"Erro ao processar com o Gemini: {e}")
         return []
 
 # ==========================================
@@ -99,7 +95,7 @@ def extrair_dados_com_ia(texto_pdf):
 # ==========================================
 
 if arquivos_pdf:
-    with st.spinner("Analisando notas fiscais com Inteligência Artificial..."):
+    with st.spinner("Analisando notas fiscais com o Google Gemini..."):
         todos_itens = []
 
         for arquivo_pdf in arquivos_pdf:
@@ -114,15 +110,15 @@ if arquivos_pdf:
                     texto_completo += pagina.get_text() + "\n"
                 pdf.close()
             except Exception as e:
-                st.error(f"Erro ao ler o arquivo {arquivo_pdf.name}: {e}")
+                st.error(f"Erro ao ler o ficheiro {arquivo_pdf.name}: {e}")
                 continue
 
             if not texto_completo.strip():
-                st.warning(f"O arquivo {arquivo_pdf.name} não contém texto legível.")
+                st.warning(f"O ficheiro {arquivo_pdf.name} não contém texto legível.")
                 continue
 
-            # Extração via IA
-            itens_extraidos = extrair_dados_com_ia(texto_completo)
+            # Extração via Gemini
+            itens_extraidos = extrair_dados_com_gemini(texto_completo)
 
             for item in itens_extraidos:
                 item["arquivo"] = arquivo_pdf.name
@@ -140,14 +136,12 @@ if arquivos_pdf:
         if len(todos_itens) > 0:
             df = pd.DataFrame(todos_itens)
 
-            # Reordena e garante as colunas finais
             colunas_desejadas = [
                 "arquivo", "empresa", "cnpj", "data", "codigo",
                 "descricao", "ncm", "cst", "cfop", "unidade",
                 "quantidade", "vlr_unitario", "vlr_total", "frete"
             ]
             
-            # Filtra apenas colunas existentes para evitar erros caso a IA altere alguma chave menor
             colunas_existentes = [c for c in colunas_desejadas if c in df.columns]
             df = df[colunas_existentes]
 
@@ -157,7 +151,7 @@ if arquivos_pdf:
                 "Quantidade", "Valor Unitário", "Valor Total", "Frete"
             ]
 
-            st.success(f"Foram encontrados {len(df)} item(ns) em {len(arquivos_pdf)} arquivo(s) usando IA.")
+            st.success(f"Foram encontrados {len(df)} item(ns) em {len(arquivos_pdf)} ficheiro(s) usando o Gemini.")
             st.dataframe(df, use_container_width=True)
 
             csv = df.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
@@ -174,11 +168,11 @@ if arquivos_pdf:
                 try:
                     response = requests.post(url, json=payload, timeout=120)
                     if response.status_code in [200, 201, 202]:
-                        st.success(f"{len(df)} registros enviados com sucesso.")
+                        st.success(f"{len(df)} registos enviados com sucesso.")
                     else:
-                        st.error(f"Erro ao enviar. Status: {response.status_code}")
+                        st.error(f"Erro ao enviar. Estado: {response.status_code}")
                         st.text(response.text)
                 except Exception as e:
                     st.error(f"Erro na comunicação: {e}")
         else:
-            st.warning("Nenhum item encontrado nos arquivos enviados.")
+            st.warning("Nenhum item encontrado nos ficheiros enviados.")

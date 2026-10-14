@@ -82,7 +82,7 @@ def extrair_dados_com_gemini(texto_pdf):
     
     while tentativa < max_tentativas:
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-3.7-pro')
             response = model.generate_content(
                 prompt,
                 generation_config={"response_mime_type": "application/json"}

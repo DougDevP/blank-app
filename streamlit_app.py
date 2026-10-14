@@ -62,6 +62,8 @@ if arquivos_pdf:
         for arquivo_pdf in arquivos_pdf:
             texto_completo = ""
             try:
+                # Garante que o ponteiro do arquivo comece do início
+                arquivo_pdf.seek(0)
                 pdf = fitz.open(
                     stream=arquivo_pdf.read(),
                     filetype="pdf"
@@ -167,11 +169,12 @@ if arquivos_pdf:
                 if fim_tabela:
                     texto_produtos = texto_produtos[:fim_tabela.start()]
 
-                texto_produtos = re.sub(r'\s+', ' ', texto_produtos)
+                # Normaliza espaçamentos para que o regex encontre as linhas estruturadas
+                texto_produtos_normalizado = re.sub(r'\s+', ' ', texto_produtos)
 
                 itens_encontrados_nesta_nota = []
 
-                for match in padrao_item.finditer(texto_produtos):
+                for match in padrao_item.finditer(texto_produtos_normalizado):
                     itens_encontrados_nesta_nota.append(match.groupdict())
 
                 if len(itens_encontrados_nesta_nota) == 0:
@@ -186,7 +189,7 @@ if arquivos_pdf:
                         re.IGNORECASE
                     )
                     try:
-                        for match in padrao_fallback.finditer(texto_produtos):
+                        for match in padrao_fallback.finditer(texto_produtos_normalizado):
                             dict_item = match.groupdict()
                             dict_item["cst"] = "N/I"
                             dict_item["cfop"] = "N/I"

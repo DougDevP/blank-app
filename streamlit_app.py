@@ -20,6 +20,11 @@ else:
     st.error("⚠️ Chave 'GEMINI_API_KEY' não encontrada nos segredos do Streamlit. Certifique-se de configurá-la no painel do Streamlit Cloud ou na pasta .streamlit/secrets.toml")
     st.stop()
 
+for m in genai.list_models():
+    if 'generateContent' in m.supported_generation_methods:
+        print(m.name)
+
+
 # ==========================================
 # POWER AUTOMATE
 # ==========================================

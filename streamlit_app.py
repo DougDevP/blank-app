@@ -195,4 +195,60 @@ if arquivos_pdf:
                         st.warning(f"Falha ao executar o fallback na nota {arquivo_pdf.name}: {ex}")
 
                 for item in itens_encontrados_nesta_nota:
-                    item["descricao"] = re.sub(r'\s+',
+                    item["descricao"] = re.sub(r'\s+', ' ', item.get("descricao", "")).strip()
+                    if not item.get("cst"):
+                        item["cst"] = "N/I"
+                    if not item.get("cfop"):
+                        item["cfop"] = "N/I"
+
+                    item["arquivo"] = arquivo_pdf.name
+                    item["empresa"] = nome_empresa
+                    item["cnpj"] = cnpj_empresa
+                    item["data"] = data_emissao
+                    item["frete"] = valor_frete
+
+                    todos_itens.append(item)
+
+        # ==========================================
+        # RESULTADO FINAL
+        # ==========================================
+        if len(todos_itens) > 0:
+            df = pd.DataFrame(todos_itens)
+
+            df = df[[
+                "arquivo", "empresa", "cnpj", "data", "codigo",
+                "descricao", "ncm", "cst", "cfop", "unidade",
+                "quantidade", "vlr_unitario", "vlr_total", "frete"
+            ]]
+
+            df.columns = [
+                "Arquivo", "Empresa", "CNPJ", "Data", "Código",
+                "Descrição", "NCM", "CST", "CFOP", "Unidade",
+                "Quantidade", "Valor Unitário", "Valor Total", "Frete"
+            ]
+
+            st.success(f"Foram encontrados {len(df)} item(ns) em {len(arquivos_pdf)} arquivo(s).")
+            st.dataframe(df, use_container_width=True)
+
+            csv = df.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
+
+            st.download_button(
+                "📥 Baixar CSV Consolidado",
+                csv,
+                file_name="produtos_notas_fiscais.csv",
+                mime="text/csv"
+            )
+
+            if st.button("Enviar para SharePoint"):
+                payload = df.to_dict(orient="records")
+                try:
+                    response = requests.post(url, json=payload, timeout=120)
+                    if response.status_code in [200, 201, 202]:
+                        st.success(f"{len(df)} registros enviados com sucesso.")
+                    else:
+                        st.error(f"Erro ao enviar. Status: {response.status_code}")
+                        st.text(response.text)
+                except Exception as e:
+                    st.error(f"Erro na comunicação: {e}")
+        else:
+            st.warning("Nenhum item encontrado nos arquivos enviados.")

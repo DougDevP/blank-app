@@ -10,7 +10,6 @@ import google.generativeai as genai
 # CONFIGURAÇÃO DA API DO GEMINI (COM PROTEÇÃO)
 # ==========================================
 try:
-    # Tenta carregar dos secrets do Streamlit
     api_key = st.secrets["GEMINI_API_KEY"]
 except Exception:
     api_key = None
@@ -52,7 +51,7 @@ arquivos_pdf = st.file_uploader(
 )
 
 # ==========================================
-# FUNÇÃO DE EXTRAÇÃO VIA GEMINI
+# FUNÇÃO DE EXTRAÇÃO VIA GEMINI COM RETRY
 # ==========================================
 def extrair_dados_com_gemini(texto_pdf):
     prompt = f"""
@@ -78,27 +77,42 @@ def extrair_dados_com_gemini(texto_pdf):
     {texto_pdf}
     """
 
-    try:
-        # Corrigido para o modelo padrão estável do Gemini
-        model = genai.GenerativeModel('gemini-3.7-flash')
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-        
-        dados = json.loads(response.text)
-        
-        if isinstance(dados, dict):
-            for chave, valor in dados.items():
-                if isinstance(valor, list):
-                    return valor
-            return [dados]
-        elif isinstance(dados, list):
-            return dados
-        return []
-    except Exception as e:
-        st.error(f"Erro ao processar com o Gemini: {e}")
-        return []
+    max_tentativas = 3
+    tentativa = 0
+    
+    while tentativa < max_tentativas:
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            
+            dados = json.loads(response.text)
+            
+            if isinstance(dados, dict):
+                for chave, valor in dados.items():
+                    if isinstance(valor, list):
+                        return valor
+                return [dados]
+            elif isinstance(dados, list):
+                return dados
+            return []
+            
+        except Exception as e:
+            erro_str = str(e)
+            # Se atingiu o limite de taxa (Quota exceeded / 429), aguarda e tenta novamente
+            if "Quota exceeded" in erro_str or "429" in erro_str:
+                tentativa += 1
+                tempo_espera = tentativa * 5  # 5s, depois 10s...
+                st.warning(f"Limite de requisições atingido. Aguardando {tempo_espera}s para nova tentativa ({tentativa}/{max_tentativas})...")
+                time.sleep(tempo_espera)
+            else:
+                st.error(f"Erro ao processar com o Gemini: {e}")
+                return []
+                
+    st.error("Número máximo de tentativas excedido devido ao limite de cota da API.")
+    return []
 
 # ==========================================
 # PROCESSAMENTO
@@ -138,8 +152,8 @@ if arquivos_pdf:
 
                 todos_itens.append(item)
 
-            # Pausa de 4 segundos para respeitar o limite gratuito de requisições por minuto (RPM)
-            time.sleep(4)
+            # Pausa de 12 segundos entre cada arquivo para garantir que não estoura o limite de 5 requisições/minuto do plano gratuito
+            time.sleep(12)
 
         # ==========================================
         # RESULTADO FINAL

@@ -80,7 +80,7 @@ def extrair_dados_com_gemini(texto_pdf):
 
     try:
         # Corrigido para o modelo padrão estável do Gemini
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-3.7-flash')
         response = model.generate_content(
             prompt,
             generation_config={"response_mime_type": "application/json"}

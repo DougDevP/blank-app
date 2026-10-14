@@ -3,6 +3,7 @@ import fitz
 import pandas as pd
 import json
 import requests
+import time
 import google.generativeai as genai
 
 # ==========================================
@@ -78,7 +79,8 @@ def extrair_dados_com_gemini(texto_pdf):
     """
 
     try:
-        model = genai.GenerativeModel('models/gemini-3.8-flash')
+        # Corrigido para o modelo padrão estável do Gemini
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(
             prompt,
             generation_config={"response_mime_type": "application/json"}
@@ -135,6 +137,9 @@ if arquivos_pdf:
                         item[chave_padrao] = "N/I" if chave_padrao in ["codigo", "ncm", "cst", "cfop"] else "0,00"
 
                 todos_itens.append(item)
+
+            # Pausa de 4 segundos para respeitar o limite gratuito de requisições por minuto (RPM)
+            time.sleep(4)
 
         # ==========================================
         # RESULTADO FINAL
